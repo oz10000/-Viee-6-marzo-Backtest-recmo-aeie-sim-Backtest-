@@ -1,0 +1,22 @@
+name: Backtest diario
+on:
+  schedule:
+    - cron: '0 0 * * *'  # cada día a las 00:00 UTC
+jobs:
+  run-backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: pip install pandas numpy requests
+      - name: Run backtest
+        run: python backtest.py
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        with:
+          name: backtest-results
+          path: backtest_tpsl_results.csv
