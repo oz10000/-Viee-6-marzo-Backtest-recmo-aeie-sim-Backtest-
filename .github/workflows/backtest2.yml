@@ -24,11 +24,10 @@ jobs:
           pip install ccxt pandas numpy numba
 
       - name: Run BadTestClasificador
-        run: |
-          python BadTestClasificador.py
+        run: python BadTestClasificador.py
 
       - name: Upload results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: backtest-results
           path: backtest_take_drop.txt
