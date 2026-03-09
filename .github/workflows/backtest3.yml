@@ -23,7 +23,7 @@ steps:
 
   - name: Run Backtest
     run: |
-      python Backtest3.py
+      python BadTestClasificador.py
 
   - name: Upload results
     uses: actions/upload-artifact@v4
