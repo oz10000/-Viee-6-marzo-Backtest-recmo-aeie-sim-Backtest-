@@ -4,14 +4,15 @@ import numpy as np
 from itertools import product
 from datetime import datetime
 
-# ==========================================
+# =====================================================
 # CONFIG
-# ==========================================
+# =====================================================
 
 INITIAL_CAPITAL = 1000
 LOOKBACK = 1200
 
 TIMEFRAMES = ["1m","2m","3m"]
+
 ACCUM_LEVELS = [1,2,3]
 
 TP_VALUES = [0.004,0.006,0.008]
@@ -22,11 +23,19 @@ DEV_THRESHOLD = 0.003
 
 REPORT_FILE = "quant_research_report.txt"
 
-exchange = ccxt.binance()
+# =====================================================
+# KUCOIN EXCHANGE
+# =====================================================
 
-# ==========================================
+exchange = ccxt.kucoin({
+    "enableRateLimit": True
+})
+
+exchange.load_markets()
+
+# =====================================================
 # TOP 100 CRYPTO ASSETS
-# ==========================================
+# =====================================================
 
 SYMBOLS = [
 "BTC/USDT","ETH/USDT","BNB/USDT","SOL/USDT","XRP/USDT","ADA/USDT","DOGE/USDT",
@@ -45,29 +54,84 @@ SYMBOLS = [
 "ICX/USDT","DGB/USDT","RVN/USDT","SC/USDT","ZEN/USDT","KNC/USDT"
 ]
 
-# ==========================================
+# =====================================================
 # DATA
-# ==========================================
+# =====================================================
 
-def fetch_data(symbol,timeframe):
+def fetch_data(symbol):
 
-    data = exchange.fetch_ohlcv(symbol,timeframe,limit=LOOKBACK)
+    try:
 
-    df = pd.DataFrame(data,columns=[
-        "time","open","high","low","close","volume"
-    ])
+        data = exchange.fetch_ohlcv(symbol,"1m",limit=LOOKBACK)
 
-    return df
+        df = pd.DataFrame(data,columns=[
+            "time","open","high","low","close","volume"
+        ])
 
-# ==========================================
+        return df
+
+    except:
+
+        return None
+
+
+# =====================================================
+# BUILD 2m CANDLES
+# =====================================================
+
+def build_2m(df):
+
+    df2 = df.copy()
+
+    df2["group"] = np.arange(len(df2)) // 2
+
+    df2 = df2.groupby("group").agg({
+        "time":"first",
+        "open":"first",
+        "high":"max",
+        "low":"min",
+        "close":"last",
+        "volume":"sum"
+    })
+
+    df2 = df2.reset_index(drop=True)
+
+    return df2
+
+
+# =====================================================
+# BUILD 3m CANDLES
+# =====================================================
+
+def build_3m(df):
+
+    df3 = df.copy()
+
+    df3["group"] = np.arange(len(df3)) // 3
+
+    df3 = df3.groupby("group").agg({
+        "time":"first",
+        "open":"first",
+        "high":"max",
+        "low":"min",
+        "close":"last",
+        "volume":"sum"
+    })
+
+    df3 = df3.reset_index(drop=True)
+
+    return df3
+
+
+# =====================================================
 # STRATEGY
-# ==========================================
+# =====================================================
 
 def compute_signals(df):
 
     df["ema"] = df["close"].ewm(span=EMA_PERIOD).mean()
 
-    dev = (df["close"]-df["ema"])/df["ema"]
+    dev = (df["close"] - df["ema"]) / df["ema"]
 
     signals = []
 
@@ -86,9 +150,10 @@ def compute_signals(df):
 
     return df
 
-# ==========================================
+
+# =====================================================
 # ACCUMULATION
-# ==========================================
+# =====================================================
 
 def check_accum(signals,i,n):
 
@@ -105,9 +170,10 @@ def check_accum(signals,i,n):
 
     return 0
 
-# ==========================================
+
+# =====================================================
 # METRICS
-# ==========================================
+# =====================================================
 
 def compute_metrics(trades):
 
@@ -122,9 +188,9 @@ def compute_metrics(trades):
     gross_profit=sum(wins)
     gross_loss=abs(sum(losses))
 
-    profit_factor=0
+    pf=0
     if gross_loss>0:
-        profit_factor=gross_profit/gross_loss
+        pf=gross_profit/gross_loss
 
     expectancy=np.mean(trades)
 
@@ -132,11 +198,12 @@ def compute_metrics(trades):
     if np.std(trades)>0:
         sharpe=np.mean(trades)/np.std(trades)
 
-    return winrate,profit_factor,expectancy,sharpe
+    return winrate,pf,expectancy,sharpe
 
-# ==========================================
+
+# =====================================================
 # BACKTEST
-# ==========================================
+# =====================================================
 
 def run_backtest(df,accum,tp,sl):
 
@@ -202,19 +269,39 @@ def run_backtest(df,accum,tp,sl):
         "edge":edge_score
     }
 
-# ==========================================
-# MAIN RESEARCH LOOP
-# ==========================================
+
+# =====================================================
+# MAIN LOOP
+# =====================================================
 
 results=[]
+
+asset_reports={}
 
 for symbol in SYMBOLS:
 
     print("Analyzing",symbol)
 
+    df1=fetch_data(symbol)
+
+    if df1 is None:
+        continue
+
+    df2=build_2m(df1)
+    df3=build_3m(df1)
+
+    dataframes={
+        "1m":df1,
+        "2m":df2,
+        "3m":df3
+    }
+
+    asset_results=[]
+
     for tf in TIMEFRAMES:
 
-        df=fetch_data(symbol,tf)
+        df=dataframes[tf].copy()
+
         df=compute_signals(df)
 
         for accum,tp,sl in product(
@@ -225,18 +312,24 @@ for symbol in SYMBOLS:
 
             stats=run_backtest(df,accum,tp,sl)
 
-            results.append({
+            record={
                 "symbol":symbol,
                 "tf":tf,
                 "accum":accum,
                 "tp":tp,
                 "sl":sl,
                 **stats
-            })
+            }
 
-# ==========================================
-# RANKING
-# ==========================================
+            results.append(record)
+            asset_results.append(record)
+
+    asset_reports[symbol]=pd.DataFrame(asset_results)
+
+
+# =====================================================
+# GLOBAL RANKING
+# =====================================================
 
 df=pd.DataFrame(results)
 
@@ -244,29 +337,39 @@ df=df.sort_values("edge",ascending=False)
 
 top_strategies=df.head(50)
 
-# ==========================================
-# ASSET CLASSIFICATION
-# ==========================================
-
 asset_scores=df.groupby("symbol")["edge"].mean()
 
 asset_rank=asset_scores.sort_values(ascending=False)
 
-# ==========================================
+
+# =====================================================
 # REPORT
-# ==========================================
+# =====================================================
 
 with open(REPORT_FILE,"w") as f:
 
     f.write("QUANT RESEARCH REPORT\n")
     f.write(str(datetime.utcnow())+"\n\n")
 
-    f.write("TOP STRATEGIES\n")
-
+    f.write("TOP STRATEGIES GLOBAL\n\n")
     f.write(top_strategies.to_string())
 
-    f.write("\n\nASSET RANKING\n")
-
+    f.write("\n\nGLOBAL ASSET RANKING\n\n")
     f.write(asset_rank.to_string())
+
+    f.write("\n\n==============================\n")
+    f.write("INDIVIDUAL ASSET ANALYSIS\n")
+    f.write("==============================\n\n")
+
+    for symbol,df_asset in asset_reports.items():
+
+        f.write("\n----------------------------------\n")
+        f.write(symbol+"\n")
+        f.write("----------------------------------\n")
+
+        best=df_asset.sort_values("edge",ascending=False).head(10)
+
+        f.write(best.to_string())
+        f.write("\n")
 
 print("Report generated:",REPORT_FILE)
