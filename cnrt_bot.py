@@ -2,43 +2,39 @@
 # -*- coding: utf-8 -*-
 
 """
-CNRT Bot – Workflow automático para GitHub Actions.
-Busca el pasaje más próximo desde un origen dado y lo reserva automáticamente.
+CNRT Bot – Busca y reserva el pasaje más próximo desde LORETO
+           Datos hardcodeados (repositorio privado recomendado)
 """
 
-import os
-import sys
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
-import time, random, re, logging
+import time, random, re, logging, sys
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ============================================================
-# CONFIGURACIÓN (desde variables de entorno, para seguridad)
+# CONFIGURACIÓN FIJA (hardcodeada)
 # ============================================================
 BASE_URL = "https://reservapasajes.cnrt.gob.ar"
 CONFIG = {
-    "dni": os.getenv("28799045"),
-    "cud": os.getenv("3351466694"),
-    "sexo": os.getenv("1", "1"),
-    "telefono": os.getenv("1125569223"),
-    "email": os.getenv("walterarmandoponce28799045@gmail.com ),
-    "origen_nombre": os.getenv("CNRT_ORIGEN", "LORETO"),
+    "dni": "28799045",
+    "cud": "3351466694",
+    "sexo": "1",
+    "telefono": "1125569223",
+    "email": "Walterarmandoponce28799045@gmail.com",
+    "origen_nombre": "LORETO",
     "cantidad_pasajes": "1"
 }
 TIMEOUT = 30
 MAX_RETRIES = 3
 THREADS = 2
 MAX_DIAS = 30
-TOP_N = 1             # AUTO: reservamos el primer pasaje encontrado
-# Si quisieras tener un top más grande y elegir, cambiá TOP_N.
-# Pero para workflow automático lo dejamos en 1 (el más próximo).
+TOP_N = 1                    # reservamos el primer pasaje encontrado
 
 # ============================================================
-# SESIÓN
+# SESIÓN CON REINTENTOS
 # ============================================================
 session = requests.Session()
 retries = Retry(total=MAX_RETRIES, backoff_factor=1, status_forcelist=[429,500,502,503,504], allowed_methods=["GET","POST"])
@@ -143,7 +139,7 @@ def abrir_buscador(token, beneficiario):
         return False
 
 # ----------------------------
-# 4. Obtener localidades (paginación)
+# 4. Obtener localidades (paginación completa)
 # ----------------------------
 def obtener_localidades():
     global origen_id, destinos
@@ -174,29 +170,30 @@ def obtener_localidades():
     if not todas:
         return False
 
+    # Buscar "LORETO" en la lista
     origen_norm = CONFIG["origen_nombre"].upper().strip()
-    # coincidencia exacta
+    # 1) exacto
     for id_loc, nombre in todas:
         if nombre.upper() == origen_norm:
             origen_id = id_loc
             log.info(f"Origen exacto: {nombre} (ID {id_loc})")
             break
     if not origen_id:
-        # sin provincia
+        # 2) sin provincia "(SANTIAGO DEL ESTERO)"
         for id_loc, nombre in todas:
             if nombre.upper().replace("(SANTIAGO DEL ESTERO)","").strip() == origen_norm:
                 origen_id = id_loc
                 log.info(f"Origen sin provincia: {nombre} (ID {id_loc})")
                 break
     if not origen_id:
-        # más corta que contenga
+        # 3) coincidencia más corta que contenga "LORETO"
         candidatos = [(id_loc, nombre) for id_loc, nombre in todas if origen_norm in nombre.upper()]
         if candidatos:
             candidatos.sort(key=lambda x: len(x[1]))
             origen_id, nombre_origen = candidatos[0]
             log.warning(f"Origen más corto: {nombre_origen} (ID {origen_id})")
     if not origen_id:
-        log.error("No se encontró el origen.")
+        log.error("No se encontró el origen LORETO.")
         return False
 
     destinos = [(id_loc, nombre) for id_loc, nombre in todas if id_loc != origen_id]
@@ -204,7 +201,7 @@ def obtener_localidades():
     return True
 
 # ----------------------------
-# 5. Parseo (obtiene link/form de reserva)
+# 5. Parseo de resultados (obtiene link/form de reserva)
 # ----------------------------
 def parsear_resultados(html, fecha, destino_nombre):
     if "No se encontraron servicios disponibles" in html:
@@ -252,7 +249,7 @@ def parsear_resultados(html, fecha, destino_nombre):
     return pasajes
 
 # ----------------------------
-# 6. Búsqueda por día
+# 6. Búsqueda por día (paralelo)
 # ----------------------------
 def buscar_dia(fecha_str):
     payload_base = {
@@ -284,7 +281,7 @@ def buscar_dia(fecha_str):
     return resultados
 
 # ----------------------------
-# 7. Búsqueda general
+# 7. Búsqueda completa hasta encontrar al menos uno
 # ----------------------------
 def buscar_pasajes():
     encontrados = []
@@ -302,7 +299,7 @@ def buscar_pasajes():
     return encontrados[:TOP_N]
 
 # ----------------------------
-# 8. Reserva automática
+# 8. Reserva automática del pasaje
 # ----------------------------
 def reservar_pasaje(pasaje):
     log.info(f"Reservando: {pasaje['destino']} - {pasaje['fecha']} {pasaje['hora']} ({pasaje['empresa']})")
@@ -324,7 +321,7 @@ def reservar_pasaje(pasaje):
                         value = inp.get("value", "")
                         if name:
                             payload[name] = value
-                    log.info("Confirmando reserva...")
+                    log.info("Enviando formulario de confirmación...")
                     r2 = session.post(action, data=payload, headers={"Referer": pasaje["link_reserva"]}, timeout=TIMEOUT)
                     if r2.status_code == 200 and ("confirmación" in r2.text.lower() or "reserva" in r2.text.lower()):
                         log.info("✅ Reserva completada exitosamente.")
@@ -378,15 +375,9 @@ def reservar_pasaje(pasaje):
 # MAIN
 # ----------------------------
 def main():
-    # Validar variables de entorno
-    if not all([CONFIG["dni"], CONFIG["cud"], CONFIG["telefono"], CONFIG["email"]]):
-        log.error("Faltan variables de entorno (CNRT_DNI, CNRT_CUD, CNRT_TELEFONO, CNRT_EMAIL).")
-        sys.exit(1)
-
     print("="*70)
-    print("   BOT CNRT – WORKFLOW AUTOMÁTICO (RESERVA DEL MÁS PRÓXIMO)")
+    print("   BOT CNRT – RESERVA DEL PASAJE MÁS PRÓXIMO DESDE LORETO")
     print("="*70)
-    print(f" Origen: {CONFIG['origen_nombre']}")
     print(f" Fecha/hora: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
     print("="*70)
 
@@ -412,7 +403,6 @@ def main():
     pasajes = buscar_pasajes()
     if not pasajes:
         log.warning("No se encontraron pasajes disponibles.")
-        # Opcional: podés configurar una notificación (Telegram, mail) aquí
         sys.exit(0)
 
     # 6. Reservar el primero
