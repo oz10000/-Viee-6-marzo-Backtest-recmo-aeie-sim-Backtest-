@@ -1,0 +1,32 @@
+name: Buscar y reservar pasaje CNRT
+
+on:
+  schedule:
+    # Corre cada 2 horas entre las 6 y las 23 (hora Argentina = UTC-3)
+    - cron: '0 9,11,13,15,17,19,21,23 * * *'
+  workflow_dispatch:   # permite ejecutarlo manualmente desde la interfaz de GitHub
+
+jobs:
+  buscar-pasaje:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests beautifulsoup4
+
+      - name: Ejecutar bot CNRT
+        env:
+          CNRT_DNI: ${{ secrets.CNRT_DNI }}
+          CNRT_CUD: ${{ secrets.CNRT_CUD }}
+          CNRT_SEXO: ${{ secrets.CNRT_SEXO }}
+          CNRT_TELEFONO: ${{ secrets.CNRT_TELEFONO }}
+          CNRT_EMAIL: ${{ secrets.CNRT_EMAIL }}
+          CNRT_ORIGEN: "LORETO"   # podés cambiarlo aquí o en secrets
+        run: python cnrt_bot.py
