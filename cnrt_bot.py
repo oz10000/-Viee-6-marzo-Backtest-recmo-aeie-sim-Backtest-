@@ -21,11 +21,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # ============================================================
 BASE_URL = "https://reservapasajes.cnrt.gob.ar"
 CONFIG = {
-    "dni": os.getenv("CNRT_DNI"),
-    "cud": os.getenv("CNRT_CUD"),
-    "sexo": os.getenv("CNRT_SEXO", "1"),
-    "telefono": os.getenv("CNRT_TELEFONO"),
-    "email": os.getenv("CNRT_EMAIL"),
+    "dni": os.getenv("28799045"),
+    "cud": os.getenv("3351466694"),
+    "sexo": os.getenv("1", "1"),
+    "telefono": os.getenv("1125569223"),
+    "email": os.getenv("walterarmandoponce28799045@gmail.com ),
     "origen_nombre": os.getenv("CNRT_ORIGEN", "LORETO"),
     "cantidad_pasajes": "1"
 }
